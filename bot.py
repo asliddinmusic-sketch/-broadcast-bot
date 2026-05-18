@@ -10,7 +10,7 @@ from telegram.ext import (
 )
 
 # =============================================
-BOT_TOKEN = os.environ.get("8917961411:AAGsjqX71bngb_ee5_wM4q-yzG8uz5Djuuw")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8917961411:AAGsjqX71bngb_ee5_wM4q-yzG8uz5Djuuw")
 OWNER_ID = int(os.environ.get("OWNER_ID", "1432396874"))
 CHATS_FILE = "chats.json"
 # =============================================
