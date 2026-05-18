@@ -1,7 +1,6 @@
 import logging
 import json
 import os
-import asyncio
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -11,8 +10,8 @@ from telegram.ext import (
 )
 
 # =============================================
-BOT_TOKEN = "8917961411:AAGsjqX71bngb_ee5_wM4q-yzG8uz5Djuuw"
-OWNER_ID = 1432396874
+BOT_TOKEN = os.environ.get("8917961411:AAGsjqX71bngb_ee5_wM4q-yzG8uz5Djuuw")
+OWNER_ID = int(os.environ.get("OWNER_ID", "1432396874"))
 CHATS_FILE = "chats.json"
 # =============================================
 
@@ -32,20 +31,6 @@ def save_chats(chats):
         json.dump(chats, f, ensure_ascii=False, indent=2)
 
 
-def add_chat(chat_id, title, chat_type):
-    chats = load_chats()
-    chats[str(chat_id)] = {"title": title, "type": chat_type, "id": chat_id}
-    save_chats(chats)
-    logger.info(f"Qoshildi: {title} ({chat_id})")
-
-
-def remove_chat(chat_id):
-    chats = load_chats()
-    if str(chat_id) in chats:
-        del chats[str(chat_id)]
-        save_chats(chats)
-
-
 def is_owner(update):
     return update.effective_user and update.effective_user.id == OWNER_ID
 
@@ -56,10 +41,16 @@ async def track_chat_member(update, context):
         return
     chat = result.chat
     new_status = result.new_chat_member.status
+    chats = load_chats()
     if new_status in ("administrator", "member"):
-        add_chat(chat.id, chat.title or "Nomsiz", chat.type)
+        chats[str(chat.id)] = {"title": chat.title or "Nomsiz", "type": chat.type, "id": chat.id}
+        save_chats(chats)
+        logger.info(f"Qoshildi: {chat.title}")
     elif new_status in ("left", "kicked", "restricted"):
-        remove_chat(chat.id)
+        if str(chat.id) in chats:
+            del chats[str(chat.id)]
+            save_chats(chats)
+            logger.info(f"Ochirildi: {chat.title}")
 
 
 async def start(update, context):
@@ -67,11 +58,10 @@ async def start(update, context):
         return
     chats = load_chats()
     await update.message.reply_text(
-        f"Broadcast Bot faol!\n\n"
-        f"Ulangan: {len(chats)} ta kanal/guruh\n\n"
+        f"Broadcast Bot faol!\n"
+        f"Ulangan: {len(chats)} ta\n\n"
         f"Xabar yuboring - hammaga tarqataman!\n"
-        f"/list - royxat\n"
-        f"/status - holat"
+        f"/list - royxat\n/status - holat"
     )
 
 
@@ -80,7 +70,7 @@ async def list_chats(update, context):
         return
     chats = load_chats()
     if not chats:
-        await update.message.reply_text("Hech qanday kanal/guruh yoq.\nBotni admin qiling!")
+        await update.message.reply_text("Hech narsa yoq. Botni kanal/guruhga admin qiling!")
         return
     text = f"Jami: {len(chats)} ta\n\n"
     for c in chats.values():
@@ -93,11 +83,9 @@ async def status_cmd(update, context):
     if not is_owner(update):
         return
     chats = load_chats()
-    channels = sum(1 for c in chats.values() if c["type"] == "channel")
-    groups = sum(1 for c in chats.values() if c["type"] in ("group", "supergroup"))
-    await update.message.reply_text(
-        f"Bot: Faol\nKanallar: {channels} ta\nGuruhlar: {groups} ta\nJami: {len(chats)} ta"
-    )
+    ch = sum(1 for c in chats.values() if c["type"] == "channel")
+    gr = sum(1 for c in chats.values() if c["type"] in ("group", "supergroup"))
+    await update.message.reply_text(f"Faol\nKanallar: {ch}\nGuruhlar: {gr}\nJami: {len(chats)}")
 
 
 async def send_to_chat(context, chat_id, message):
@@ -126,45 +114,36 @@ async def broadcast(update, context):
         return
     chats = load_chats()
     if not chats:
-        await update.message.reply_text("Hech qanday kanal/guruh yoq! Avval botni admin qiling.")
+        await update.message.reply_text("Hech qanday kanal/guruh yoq!")
         return
-
     sent = 0
     failed = 0
-    status_msg = await update.message.reply_text(f"Yuborilmoqda... 0/{len(chats)}")
-
-    for i, (chat_id_str, chat_info) in enumerate(chats.items(), 1):
+    msg = await update.message.reply_text(f"Yuborilmoqda... 0/{len(chats)}")
+    for i, (cid, info) in enumerate(chats.items(), 1):
         try:
-            await send_to_chat(context, int(chat_id_str), update.message)
+            await send_to_chat(context, int(cid), update.message)
             sent += 1
         except Exception as e:
             failed += 1
-            logger.warning(f"Xato {chat_info['title']}: {e}")
-            if "kicked" in str(e).lower() or "not found" in str(e).lower():
-                remove_chat(int(chat_id_str))
-        if i % 3 == 0 or i == len(chats):
+            logger.warning(f"Xato {info['title']}: {e}")
+        if i % 5 == 0 or i == len(chats):
             try:
-                await status_msg.edit_text(f"Yuborilmoqda... {i}/{len(chats)}")
+                await msg.edit_text(f"Yuborilmoqda... {i}/{len(chats)}")
             except Exception:
                 pass
+    await msg.edit_text(f"Tugadi! Yuborildi: {sent} | Xato: {failed}")
 
-    await status_msg.edit_text(f"Tugadi!\nYuborildi: {sent} ta\nXato: {failed} ta")
 
-
-async def main():
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("list", list_chats))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(ChatMemberHandler(track_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, broadcast))
-
-    logger.info("Broadcast Bot ishga tushdi!")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling(drop_pending_updates=True)
-    await asyncio.Event().wait()
+    logger.info("Bot ishga tushdi!")
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
